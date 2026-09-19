@@ -34,7 +34,7 @@ constexpr int kKeepAliveProbeCount                 = 3;
 constexpr unsigned int kTcpUserTimeoutMilliseconds = 15000;
 
 template <class T>
-void set_socket_option(httplib::socket_t socket, int level, int option, const T& value) noexcept {
+void set_socket_option(socket_t socket, int level, int option, const T& value) noexcept {
     (void)::setsockopt(socket, level, option, &value, sizeof(value));
 }
 #endif
@@ -44,7 +44,7 @@ void set_socket_option(httplib::socket_t socket, int level, int option, const T&
 // succeeding into the kernel send buffer for many minutes. TCP_USER_TIMEOUT bounds
 // how long heartbeat bytes may sit unacknowledged before the kernel drops the
 // connection, so abandoned streams are cancelled instead of decoding forever.
-void configure_http_server_socket(httplib::socket_t socket) noexcept {
+void configure_http_server_socket(socket_t socket) noexcept {
     httplib::default_socket_options(socket);
 #if defined(__linux__)
     const int enabled = 1;
