@@ -19,8 +19,42 @@
 #include <string_view>
 #include <utility>
 
+#if defined(__linux__)
+#    include <netinet/tcp.h>
+#    include <sys/socket.h>
+#endif
+
 namespace ninfer::serve {
 namespace {
+
+#if defined(__linux__)
+constexpr int kKeepAliveIdleSeconds                = 10;
+constexpr int kKeepAliveIntervalSeconds            = 3;
+constexpr int kKeepAliveProbeCount                 = 3;
+constexpr unsigned int kTcpUserTimeoutMilliseconds = 15000;
+
+template <class T>
+void set_socket_option(httplib::socket_t socket, int level, int option, const T& value) noexcept {
+    (void)::setsockopt(socket, level, option, &value, sizeof(value));
+}
+#endif
+
+// Accepted sockets inherit these liveness options from the listener. The SSE ping
+// heartbeats alone cannot detect a peer that dies without a FIN: its writes keep
+// succeeding into the kernel send buffer for many minutes. TCP_USER_TIMEOUT bounds
+// how long heartbeat bytes may sit unacknowledged before the kernel drops the
+// connection, so abandoned streams are cancelled instead of decoding forever.
+void configure_http_server_socket(httplib::socket_t socket) noexcept {
+    httplib::default_socket_options(socket);
+#if defined(__linux__)
+    const int enabled = 1;
+    set_socket_option(socket, SOL_SOCKET, SO_KEEPALIVE, enabled);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPIDLE, kKeepAliveIdleSeconds);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPINTVL, kKeepAliveIntervalSeconds);
+    set_socket_option(socket, IPPROTO_TCP, TCP_KEEPCNT, kKeepAliveProbeCount);
+    set_socket_option(socket, IPPROTO_TCP, TCP_USER_TIMEOUT, kTcpUserTimeoutMilliseconds);
+#endif
+}
 
 struct StreamingRequest {
     explicit StreamingRequest(PreparedRequest request) : prepared(std::move(request)) {}
@@ -114,6 +148,7 @@ HttpServer::HttpServer(ServeOptions options)
     server_.new_task_queue         = [queued_requests, worker_count] {
         return new httplib::ThreadPool(worker_count, queued_requests);
     };
+    server_.set_socket_options(configure_http_server_socket);
     server_.set_payload_max_length(options_.max_request_bytes);
     register_routes();
 }
